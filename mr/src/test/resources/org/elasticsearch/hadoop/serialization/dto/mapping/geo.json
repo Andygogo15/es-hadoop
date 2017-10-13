@@ -1,0 +1,18 @@
+{
+	"index": {
+		"mappings": {
+			"restaurant" : {
+				"properties" : {
+					"location" : {
+						"type" : "geo_point",
+						"normalize" : true,
+						"fielddata" : {
+							"format" : "compressed",
+							"precision" : "1cm"
+						}
+					}
+				}
+			}
+		}
+	}
+}

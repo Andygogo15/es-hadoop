@@ -1,0 +1,20 @@
+{
+    "index": {
+        "mappings": {
+            "basic" : {
+                "properties" : {
+                    "name" : {
+                        "type" : "string"
+                    },
+                    "org.apache.pig.builtin.currenttime_21" : {
+                        "type" : "date",
+                        "format" : "dateOptionalTime"
+                    },
+                    "url" : {
+                        "type" : "string"
+                    }
+                }
+            }
+        }
+    }
+}

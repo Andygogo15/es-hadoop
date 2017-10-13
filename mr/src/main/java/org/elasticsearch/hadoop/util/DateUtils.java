@@ -19,7 +19,11 @@
 package org.elasticsearch.hadoop.util;
 
 import java.lang.reflect.Method;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.Locale;
+import java.util.TimeZone;
 
 import javax.xml.bind.DatatypeConverter;
 
@@ -39,7 +43,7 @@ public abstract class DateUtils {
     private static abstract class Jdk6 {
         // Parses ISO date through the JDK XML bind class. However the spec doesn't support all ISO8601 formats which this class tries to address
         // in particular Time offsets from UTC are available in 3 forms:
-        // The offset from UTC is appended to the time in the same way that 'Z' was above, in the form ±[hh]:[mm], ±[hh][mm], or ±[hh].
+        // The offset from UTC is appended to the time in the same way that 'Z' was above, in the form ï¿½[hh]:[mm], ï¿½[hh][mm], or ï¿½[hh].
         //
         // XML Bind supports only the first one.
         public static Calendar parseDate(String value) {
@@ -118,7 +122,29 @@ public abstract class DateUtils {
                 // be silent otherwise
             }
         }
+        Log log = LogFactory.getLog(DateUtils.class);
+        // yyyy-MM-dd format
+        Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"));
+        String dateStr = "yyyy-MM-dd";
+        String timestampStr = "yyyy-MM-dd HH:mm:ss";
+        if (value.length() == dateStr.length()) {
+            SimpleDateFormat format = new SimpleDateFormat(dateStr, Locale.CHINA);
+            try {
+                cal.setTime(format.parse(value));
+                return cal;
+            } catch (ParseException e) {
+                log.info("parse date error:" + value, e);
+            }
+        } else if (value.length() == timestampStr.length()) {
+            SimpleDateFormat format = new SimpleDateFormat(timestampStr, Locale.CHINA);
+            try {
 
+                cal.setTime(format.parse(value));
+                return cal;
+            } catch (ParseException e) {
+                log.info("parse date error:" + value, e);
+            }
+        }
         return (jodaTimeAvailable && JodaTime.INITIALIZED) ? JodaTime.parseDate(value) : Jdk6.parseDate(value);
     }
 }

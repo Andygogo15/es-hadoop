@@ -49,7 +49,7 @@ package object sql {
     def saveToEs(resource: String, cfg: scala.collection.Map[String, String]): Unit = { EsSparkSQL.saveToEs(df, resource, cfg) }
     def saveToEs(cfg: scala.collection.Map[String, String]): Unit = { EsSparkSQL.saveToEs(df, cfg)    }
   }
-  
+
   implicit def sparkSessionFunctions(ss: SparkSession)= new SparkSessionFunctions(ss)
   
   class SparkSessionFunctions(ss: SparkSession) extends Serializable {
@@ -68,4 +68,5 @@ package object sql {
     def saveToEs(resource: String, cfg: scala.collection.Map[String, String]): Unit =  { EsSparkSQL.saveToEs(ds, resource, cfg) }
     def saveToEs(cfg: scala.collection.Map[String, String]): Unit =  { EsSparkSQL.saveToEs(ds, cfg)    }
   }
+
 }

@@ -34,6 +34,9 @@ public interface ConfigurationOptions {
     String ES_NODES_DISCOVERY = "es.nodes.discovery";
     String ES_NODES_DISCOVERY_DEFAULT = "true";
 
+    String ES_SEARCH_TYPE = "es.search.type";
+    String ES_SEARCH_TYPE_DEFAULT = "query_then_fetch";
+
     /** Elasticsearch port **/
     String ES_PORT = "es.port";
     String ES_PORT_DEFAULT = "9200";

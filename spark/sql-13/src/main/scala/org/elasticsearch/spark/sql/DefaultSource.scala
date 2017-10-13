@@ -23,8 +23,7 @@ import java.util.Date
 import java.util.Locale
 
 import scala.collection.JavaConverters.mapAsJavaMapConverter
-import scala.collection.mutable.LinkedHashMap
-import scala.collection.mutable.LinkedHashSet
+import scala.collection.mutable.{ArrayBuffer, LinkedHashMap, LinkedHashSet}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.Row
@@ -34,24 +33,7 @@ import org.apache.spark.sql.SaveMode.Append
 import org.apache.spark.sql.SaveMode.ErrorIfExists
 import org.apache.spark.sql.SaveMode.Ignore
 import org.apache.spark.sql.SaveMode.Overwrite
-import org.apache.spark.sql.sources.And
-import org.apache.spark.sql.sources.BaseRelation
-import org.apache.spark.sql.sources.CreatableRelationProvider
-import org.apache.spark.sql.sources.EqualTo
-import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.sources.GreaterThan
-import org.apache.spark.sql.sources.GreaterThanOrEqual
-import org.apache.spark.sql.sources.In
-import org.apache.spark.sql.sources.InsertableRelation
-import org.apache.spark.sql.sources.IsNotNull
-import org.apache.spark.sql.sources.IsNull
-import org.apache.spark.sql.sources.LessThan
-import org.apache.spark.sql.sources.LessThanOrEqual
-import org.apache.spark.sql.sources.Not
-import org.apache.spark.sql.sources.Or
-import org.apache.spark.sql.sources.PrunedFilteredScan
-import org.apache.spark.sql.sources.RelationProvider
-import org.apache.spark.sql.sources.SchemaRelationProvider
+import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.DateType
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.types.TimestampType
@@ -59,7 +41,7 @@ import org.elasticsearch.hadoop.EsHadoopIllegalArgumentException
 import org.elasticsearch.hadoop.EsHadoopIllegalStateException
 import org.elasticsearch.hadoop.cfg.ConfigurationOptions
 import org.elasticsearch.hadoop.cfg.InternalConfigurationOptions
-import org.elasticsearch.hadoop.rest.{InitializationUtils, RestClient, RestRepository}
+import org.elasticsearch.hadoop.rest._
 import org.elasticsearch.hadoop.serialization.builder.JdkValueWriter
 import org.elasticsearch.hadoop.serialization.json.JacksonJsonGenerator
 import org.elasticsearch.hadoop.util.FastByteArrayOutputStream
@@ -71,6 +53,11 @@ import org.elasticsearch.spark.cfg.SparkSettingsManager
 import org.elasticsearch.spark.serialization.ScalaValueWriter
 import javax.xml.bind.DatatypeConverter
 
+import org.elasticsearch.hadoop.rest.query.{QueryBuilder, QueryUtils}
+import org.elasticsearch.hadoop.serialization.ScrollReader
+import org.elasticsearch.hadoop.serialization.ScrollReader.ScrollReaderConfig
+
+import scala.collection.JavaConversions._
 import org.elasticsearch.hadoop.serialization.field.ConstantFieldExtractor
 
 private[sql] class DefaultSource extends RelationProvider with SchemaRelationProvider with CreatableRelationProvider  {
@@ -118,7 +105,7 @@ private[sql] class DefaultSource extends RelationProvider with SchemaRelationPro
   }
 }
 
-private[sql] case class ElasticsearchRelation(parameters: Map[String, String], @transient val sqlContext: SQLContext, userSchema: Option[StructType] = None)
+case class ElasticsearchRelation(parameters: Map[String, String], @transient val sqlContext: SQLContext, userSchema: Option[StructType] = None)
   extends BaseRelation with PrunedFilteredScan with InsertableRelation
   {
 
@@ -127,6 +114,9 @@ private[sql] case class ElasticsearchRelation(parameters: Map[String, String], @
   @transient lazy val lazySchema = { SchemaUtils.discoverMapping(cfg) }
 
   @transient lazy val valueWriter = { new ScalaValueWriter }
+
+  var queryString = ""
+  var isBoostQuery = false
 
   override def schema = userSchema.getOrElse(lazySchema.struct)
 
@@ -138,6 +128,8 @@ private[sql] case class ElasticsearchRelation(parameters: Map[String, String], @
 
   // PrunedFilteredScan
   def buildScan(requiredColumns: Array[String], filters: Array[Filter]): RDD[Row] = {
+    isBoostQuery = false
+    queryString = ""
     val paramWithScan = LinkedHashMap[String, String]() ++ parameters
 
     var filteredColumns = requiredColumns
@@ -186,7 +178,47 @@ private[sql] case class ElasticsearchRelation(parameters: Map[String, String], @
       }
     }
 
-    new ScalaEsRowRDD(sqlContext.sparkContext, paramWithScan, lazySchema)
+    if(isBoostQuery) {
+      if (Utils.LOGGER.isDebugEnabled()) {
+        Utils.LOGGER.debug(s"Boost Query")
+      }
+      val conf = new SparkSettingsManager().load(sqlContext.sparkContext.getConf).copy()
+      val Escfg = conf.merge(paramWithScan)
+      Escfg.setQuery(queryString)
+      Escfg.setProperty(org.elasticsearch.hadoop.cfg.ConfigurationOptions.ES_SEARCH_TYPE,"query_then_fetch")
+      val repo = new RestRepository(Escfg)
+      InitializationUtils.setValueReaderIfNotSet(Escfg, classOf[ScalaRowValueReader], null)
+      SchemaUtils.setRowInfo(Escfg, lazySchema.struct)
+      val reader = new ScalaRowValueReader
+      reader.setSettings(Escfg)
+      val scrollReader = new ScrollReader(new ScrollReaderConfig(reader, repo.getMappings.getResolvedView, Escfg))
+      val version = InitializationUtils.discoverEsVersion(Escfg, Utils.LOGGER)
+      val includeVersion = Escfg.getReadMetadata && Escfg.getReadMetadataVersion;
+      val queryBuilder = new SearchRequestBuilder(version, includeVersion)
+        .searchType(Escfg.getSearchType())
+        .indices(Escfg.getResourceRead())
+        .scroll(Escfg.getScrollKeepAlive())
+        .size(Escfg.getScrollSize())
+        .limit(Escfg.getScrollLimit())
+        .fields(SettingsUtils.determineSourceFields(Escfg))
+        .local(true)
+        .excludeSource(Escfg.getExcludeSource());
+      queryBuilder.query(queryString)
+      val is = queryBuilder.buildFetch(repo,scrollReader)
+      val scroll = scrollReader.read(is)
+      val arrayBuf = new ArrayBuffer[ScalaEsRow]()
+      if(scroll != null){
+        val hits = scroll.getHits
+        for (i <- 0 until hits.size) {
+          val result = hits(i)
+          val row = result(1).asInstanceOf[ScalaEsRow]
+          arrayBuf.append(row)
+        }
+      }
+      sqlContext.sparkContext.makeRDD(arrayBuf,1)
+    } else {
+      new ScalaEsRowRDD(sqlContext.sparkContext, paramWithScan, lazySchema)
+    }
   }
 
   // introduced in Spark 1.6
@@ -306,20 +338,34 @@ private[sql] case class ElasticsearchRelation(parameters: Map[String, String], @
         }
       }
       case IsNotNull(attribute)                 => s"""{"exists":{"field":"$attribute"}}"""
-      case And(left, right)                     => {
-        if (isES50) {
-          s"""{"bool":{"filter":[${translateFilter(left, strictPushDown, isES50)}, ${translateFilter(right, strictPushDown, isES50)}]}}"""
+      case And(left, right)                     => (left, right) match {
+        case (FullText(lattribute, lvalue), FullText(rattribute, rvalue)) => {
+          val lstring = lvalue.replace("\"", "\\\"")
+          val rstring = rvalue.replace("\"", "\\\"")
+          s"""{"query_string":{"query": "$lattribute:$lstring AND $rattribute:$rstring", "phrase_slop": "2"}}"""
         }
-        else {
-          s"""{"and":{"filters":[${translateFilter(left, strictPushDown, isES50)}, ${translateFilter(right, strictPushDown, isES50)}]}}"""  
+        case _ => {
+          if (isES50) {
+            s"""{"bool":{"filter":[${translateFilter(left, strictPushDown, isES50)}, ${translateFilter(right, strictPushDown, isES50)}]}}"""
+          }
+          else {
+            s"""{"and":{"filters":[${translateFilter(left, strictPushDown, isES50)}, ${translateFilter(right, strictPushDown, isES50)}]}}"""
+          }
         }
       }
-      case Or(left, right)                      => {
-        if (isES50) {
-          s"""{"bool":{"should":[{"bool":{"filter":${translateFilter(left, strictPushDown, isES50)}}}, {"bool":{"filter":${translateFilter(right, strictPushDown, isES50)}}}]}}"""
+      case Or(left, right)                      => (left, right) match {
+        case (FullText(lattribute, lvalue), FullText(rattribute, rvalue)) => {
+          val lstring = lvalue.replace("\"", "\\\"")
+          val rstring = rvalue.replace("\"", "\\\"")
+          s"""{"query_string":{"query": "$lattribute:$lstring OR $rattribute:$rstring", "phrase_slop": "2"}}"""
         }
-        else {
-          s"""{"or":{"filters":[${translateFilter(left, strictPushDown, isES50)}, ${translateFilter(right, strictPushDown, isES50)}]}}"""
+        case _ => {
+          if (isES50) {
+            s"""{"bool":{"should":[{"bool":{"filter":${translateFilter(left, strictPushDown, isES50)}}}, {"bool":{"filter":${translateFilter(right, strictPushDown, isES50)}}}]}}"""
+          }
+          else {
+            s"""{"or":{"filters":[${translateFilter(left, strictPushDown, isES50)}, ${translateFilter(right, strictPushDown, isES50)}]}}"""
+          }
         }
       }
       case Not(filterToNeg)                     => {
@@ -395,6 +441,20 @@ private[sql] case class ElasticsearchRelation(parameters: Map[String, String], @
             s"""{"query":{"match":{"${f.productElement(0)}":$arg}}}"""
           }
         }
+      }
+
+      case FullText(attribute, value)             => {
+        val reg = "\\^\\d".r
+        val num = value.split("\\ ").map(x => reg.findFirstIn(x)).filter(x => !x.isEmpty).size
+        isBoostQuery = num > 0
+        val tempString = value.replace("\"", "\\\"")
+        queryString = s"""{"query":{"query_string":{"query": "$attribute:$tempString"}}}"""
+        s"""{"query_string":{"fields": ["$attribute"], "query": "$tempString", "phrase_slop": "2"}}""".stripMargin
+      }
+
+      case FullTextSubString(attribute, value)     => {
+        val tempString = value.replace("\"", "\\\"")
+        s"""{"match_phrase":{"$attribute":"$tempString"}}""".stripMargin
       }
 
       case _                                                                        => ""

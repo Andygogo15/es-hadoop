@@ -20,6 +20,7 @@ package org.elasticsearch.spark
 
 import org.apache.spark.streaming.dstream.DStream
 import org.elasticsearch.hadoop.util.ObjectUtils
+import scala.language.implicitConversions
 
 import scala.reflect.ClassTag
 

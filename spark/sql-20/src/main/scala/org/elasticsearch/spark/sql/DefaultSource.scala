@@ -35,24 +35,7 @@ import org.apache.spark.sql.SaveMode.Append
 import org.apache.spark.sql.SaveMode.ErrorIfExists
 import org.apache.spark.sql.SaveMode.Ignore
 import org.apache.spark.sql.SaveMode.Overwrite
-import org.apache.spark.sql.sources.And
-import org.apache.spark.sql.sources.BaseRelation
-import org.apache.spark.sql.sources.CreatableRelationProvider
-import org.apache.spark.sql.sources.EqualTo
-import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.sources.GreaterThan
-import org.apache.spark.sql.sources.GreaterThanOrEqual
-import org.apache.spark.sql.sources.In
-import org.apache.spark.sql.sources.InsertableRelation
-import org.apache.spark.sql.sources.IsNotNull
-import org.apache.spark.sql.sources.IsNull
-import org.apache.spark.sql.sources.LessThan
-import org.apache.spark.sql.sources.LessThanOrEqual
-import org.apache.spark.sql.sources.Not
-import org.apache.spark.sql.sources.Or
-import org.apache.spark.sql.sources.PrunedFilteredScan
-import org.apache.spark.sql.sources.RelationProvider
-import org.apache.spark.sql.sources.SchemaRelationProvider
+import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.DateType
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.types.TimestampType
@@ -313,7 +296,7 @@ private[sql] case class ElasticsearchRelation(parameters: Map[String, String], @
           s"""{"bool":{"filter":[${translateFilter(left, strictPushDown, isES50)}, ${translateFilter(right, strictPushDown, isES50)}]}}"""
         }
         else {
-          s"""{"and":{"filters":[${translateFilter(left, strictPushDown, isES50)}, ${translateFilter(right, strictPushDown, isES50)}]}}"""  
+          s"""{"and":{"filters":[${translateFilter(left, strictPushDown, isES50)}, ${translateFilter(right, strictPushDown, isES50)}]}}"""
         }
       }
       case Or(left, right)                      => {

@@ -145,6 +145,11 @@ public class RestRepository implements Closeable, StatsAware {
         return new ScrollQuery(this, query, body, limit, reader);
     }
 
+    public InputStream  fetchLimit(String query, BytesArray body, long limit, ScrollReader reader) {
+        InputStream is = client.fetch(query, body);
+        return is;
+    }
+
     public void addRuntimeFieldExtractor(MetadataExtractor metaExtractor) {
         this.metaExtractor = metaExtractor;
     }

@@ -15,6 +15,7 @@ buildscript {
 
 allprojects {
     repositories {
+      mavenLocal()
       mavenCentral()
       // cascading
       maven { url "http://conjars.org/repo" }
@@ -545,7 +546,7 @@ def nestMRProject(target) {
         s3 target.jar
     }
 }
-
+/*
 project(":elasticsearch-hadoop-cascading") {
     description = "Elasticsearch Hadoop Cascading"
     nestMRProject(project)
@@ -555,7 +556,7 @@ project(":elasticsearch-hadoop-cascading") {
         provided("cascading:cascading-local:$cascadingVersion")
     }
 }
-
+*/
 project(":elasticsearch-hadoop-pig") {
     description = "Elasticsearch Hadoop Pig"
     nestMRProject(project)
@@ -787,7 +788,7 @@ configure(rootProject) {
     description = "Elasticsearch Hadoop"
     
     // include Spark 2.0 support in main jar
-    def eshModules = subprojects - project(":elasticsearch-spark-13")
+    def eshModules = subprojects - project(":elasticsearch-spark-20")
     
     // build root project dependencies
     // extract optional and provided dependencies

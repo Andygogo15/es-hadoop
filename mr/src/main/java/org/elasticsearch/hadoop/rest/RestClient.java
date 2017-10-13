@@ -525,6 +525,11 @@ public class RestClient implements Closeable, StatsAware {
         }
     }
 
+    public InputStream fetch (String query, BytesArray body) {
+        InputStream is = execute(POST, query, body).body();
+        return is;
+    }
+
     public boolean delete(String indexOrType) {
         Request req = new SimpleRequest(DELETE, null, indexOrType);
         Response res = executeNotFoundAllowed(req);

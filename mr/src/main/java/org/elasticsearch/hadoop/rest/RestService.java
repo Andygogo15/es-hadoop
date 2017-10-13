@@ -441,6 +441,7 @@ public abstract class RestService implements Serializable {
         SearchRequestBuilder requestBuilder =
                 new SearchRequestBuilder(version, includeVersion)
                         .types(read.type())
+                        .searchType(settings.getSearchType())
                         .indices(partition.getIndex())
                         .query(QueryUtils.parseQuery(settings))
                         .scroll(settings.getScrollKeepAlive())

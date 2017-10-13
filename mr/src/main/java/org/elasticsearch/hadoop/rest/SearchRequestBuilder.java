@@ -18,18 +18,17 @@
  */
 package org.elasticsearch.hadoop.rest;
 
+import org.apache.commons.logging.LogFactory;
 import org.elasticsearch.hadoop.rest.query.BoolQueryBuilder;
 import org.elasticsearch.hadoop.rest.query.FilteredQueryBuilder;
 import org.elasticsearch.hadoop.rest.query.QueryBuilder;
 import org.elasticsearch.hadoop.serialization.ScrollReader;
 import org.elasticsearch.hadoop.serialization.json.JacksonJsonGenerator;
-import org.elasticsearch.hadoop.util.Assert;
-import org.elasticsearch.hadoop.util.EsMajorVersion;
-import org.elasticsearch.hadoop.util.FastByteArrayOutputStream;
-import org.elasticsearch.hadoop.util.StringUtils;
+import org.elasticsearch.hadoop.util.*;
 import org.elasticsearch.hadoop.util.encoding.HttpEncodingTools;
 import org.elasticsearch.hadoop.util.unit.TimeValue;
 
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -37,6 +36,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import org.apache.commons.logging.Log;
 
 /**
  * A search request builder which allows building {@link ScrollQuery}
@@ -51,7 +51,7 @@ public class SearchRequestBuilder {
             this.max = max;
         }
     }
-
+    private static Log log = LogFactory.getLog("org.elasticsearch.hadoop.rest.SearchRequestBuilder");
     private final EsMajorVersion version;
     private final boolean includeVersion;
     private TimeValue scroll = TimeValue.timeValueMinutes(10);
@@ -61,12 +61,16 @@ public class SearchRequestBuilder {
     private String types;
     private String shard;
     private String fields;
+    private String SEARCHTYPE;
     private QueryBuilder query;
     private final List<QueryBuilder> filters = new ArrayList<QueryBuilder> ();
     private String routing;
     private Slice slice;
     private boolean local = false;
     private boolean excludeSource = false;
+    // used for boost query only
+    private String queryBody = "";
+
 
     public SearchRequestBuilder(EsMajorVersion version, boolean includeVersion) {
         this.version = version;
@@ -91,9 +95,18 @@ public class SearchRequestBuilder {
         return this;
     }
 
+    public SearchRequestBuilder searchType(String searchType) {
+        this.SEARCHTYPE = searchType;
+        return this;
+    }
+
     public SearchRequestBuilder query(QueryBuilder builder) {
         this.query = builder;
         return this;
+    }
+
+    public void query(String queryStirng) {
+        this.queryBody = queryStirng;
     }
 
     public QueryBuilder query() {
@@ -177,13 +190,13 @@ public class SearchRequestBuilder {
         sb.append("/_search?");
 
         // override infrastructure params
-        if (version.onOrAfter(EsMajorVersion.V_5_X)) {
+        if (version.onOrAfter(EsMajorVersion.V_5_X) && queryBody.length()==0) {
             // scan type was removed
             // default to sorting by indexing/doc order
             uriParams.put("sort", "_doc");
         }
         else {
-            uriParams.put("search_type", "scan");
+            uriParams.put("search_type", SEARCHTYPE);
         }
         uriParams.put("scroll", String.valueOf(scroll.toString()));
         uriParams.put("size", String.valueOf(size));
@@ -272,6 +285,12 @@ public class SearchRequestBuilder {
             generator.close();
         }
         return client.scanLimit(scrollUri, out.bytes(), limit, reader);
+    }
+
+    public InputStream buildFetch (RestRepository client, ScrollReader reader) {
+        String scrollUri = assemble();
+        log.info("scrollUri: " + scrollUri + "; queryBody: " + queryBody);
+        return client.fetchLimit(scrollUri, new BytesArray(queryBody), limit, reader);
     }
 
     @Override

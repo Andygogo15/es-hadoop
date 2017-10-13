@@ -75,7 +75,7 @@ object EsSparkSQL {
   //
   // Write
   //
-  
+
   def saveToEs(srdd: Dataset[_], resource: String): Unit = {
     saveToEs(srdd, Map(ES_RESOURCE_WRITE -> resource))
   }
